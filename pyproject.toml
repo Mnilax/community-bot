@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "community-bot"
+version = "0.1.0"
+description = "Telegram community management bot — anti-spam, captcha gate, welcome flow, FAQ, raid detection, sentiment tracking"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.10.0",
+    "aiosqlite>=0.20.0",
+    "apscheduler>=3.10.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bot"]
