@@ -14,6 +14,7 @@ class CaptchaChallenge:
     user_id: int
     chat_id: int
     answer: str
+    question: str = ""
     message_id: int | None = None
     created_at: float = 0.0
 
@@ -35,7 +36,7 @@ class CaptchaService:
         if self.captcha_type == "math":
             a, b = random.randint(1, 20), random.randint(1, 20)
             answer = str(a + b)
-            challenge = CaptchaChallenge(user_id=user_id, chat_id=chat_id, answer=answer)
+            challenge = CaptchaChallenge(user_id=user_id, chat_id=chat_id, answer=answer, question=f"{a} + {b} = ?")
         else:
             # Button captcha — answer is a predefined token
             answer = f"verify_{user_id}"
@@ -44,7 +45,7 @@ class CaptchaService:
         self._pending[(chat_id, user_id)] = challenge
         return challenge
 
-    def verify(self, user_id: int, chat_id: int, answer: str) -> bool:
+    def verify(self, user_id: int, chat_id: int, answer: str, *, consume: bool = True) -> bool:
         """Check if the answer is correct."""
         key = (chat_id, user_id)
         challenge = self._pending.get(key)
@@ -57,7 +58,8 @@ class CaptchaService:
             return False
 
         if answer == challenge.answer:
-            self._pending.pop(key, None)
+            if consume:
+                self._pending.pop(key, None)
             return True
 
         return False

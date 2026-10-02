@@ -5,6 +5,7 @@ from __future__ import annotations
 from aiogram import Router, Bot
 from aiogram.types import Message
 from aiogram.filters import Command
+from html import escape
 
 from bot.db import Database
 from bot.services.faq import format_faq_list
@@ -18,85 +19,82 @@ def setup(bot: Bot, db: Database, admin_ids: list[int], raid: RaidDetector):
     """Configure admin handlers."""
 
     def is_admin(message: Message) -> bool:
-        return message.from_user.id in admin_ids
+        return bool(message.chat.type in ("group", "supergroup") and message.from_user and not message.sender_chat and message.from_user.id in admin_ids)
 
     @router.message(Command("warn"))
     async def cmd_warn(message: Message):
         if not is_admin(message):
             return
 
-        if not message.reply_to_message:
+        if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.sender_chat:
             await message.reply("Reply to a message to warn the user.")
             return
 
         target = message.reply_to_message.from_user
         reason = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else "No reason"
 
-        warn_count = await db.add_warn(target.id, message.from_user.id, reason)
+        warn_count = await db.add_warn(target.id, message.from_user.id, reason, message.chat.id)
         await message.reply(
-            f"⚠️ {target.full_name} warned ({warn_count}/3).\nReason: {reason}"
+            f"⚠️ {escape(target.full_name)} warned ({warn_count}/3).\nReason: {escape(reason)}"
         )
 
         if warn_count >= 3:
-            await db.set_banned(target.id, True)
             await bot.ban_chat_member(message.chat.id, target.id)
-            await message.reply(f"🚫 {target.full_name} banned (3 warnings).")
+            await db.set_banned(target.id, True, message.chat.id)
+            await message.reply(f"🚫 {escape(target.full_name)} banned (3 warnings).")
 
     @router.message(Command("ban"))
     async def cmd_ban(message: Message):
         if not is_admin(message):
             return
 
-        if not message.reply_to_message:
+        if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.sender_chat:
             await message.reply("Reply to a message to ban the user.")
             return
 
         target = message.reply_to_message.from_user
-        await db.set_banned(target.id, True)
         await bot.ban_chat_member(message.chat.id, target.id)
-        await message.reply(f"🚫 {target.full_name} banned.")
+        await db.set_banned(target.id, True, message.chat.id)
+        await message.reply(f"🚫 {escape(target.full_name)} banned.")
 
     @router.message(Command("mute"))
     async def cmd_mute(message: Message):
         if not is_admin(message):
             return
 
-        if not message.reply_to_message:
+        if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.sender_chat:
             await message.reply("Reply to a message to mute the user.")
             return
 
         target = message.reply_to_message.from_user
         from aiogram.types import ChatPermissions
 
-        await db.set_muted(target.id, True)
         await bot.restrict_chat_member(
             message.chat.id, target.id,
             permissions=ChatPermissions(can_send_messages=False),
         )
-        await message.reply(f"🔇 {target.full_name} muted.")
+        await db.set_muted(target.id, True, message.chat.id)
+        await message.reply(f"🔇 {escape(target.full_name)} muted.")
 
     @router.message(Command("unmute"))
     async def cmd_unmute(message: Message):
         if not is_admin(message):
             return
 
-        if not message.reply_to_message:
+        if not message.reply_to_message or not message.reply_to_message.from_user or message.reply_to_message.sender_chat:
             await message.reply("Reply to a message to unmute the user.")
             return
 
         target = message.reply_to_message.from_user
         from aiogram.types import ChatPermissions
 
-        await db.set_muted(target.id, False)
+        chat = await bot.get_chat(message.chat.id)
         await bot.restrict_chat_member(
             message.chat.id, target.id,
-            permissions=ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-            ),
+            permissions=chat.permissions or ChatPermissions(can_send_messages=True),
         )
-        await message.reply(f"🔊 {target.full_name} unmuted.")
+        await db.set_muted(target.id, False, message.chat.id)
+        await message.reply(f"🔊 {escape(target.full_name)} unmuted.")
 
     @router.message(Command("faq"))
     async def cmd_faq(message: Message):
@@ -120,6 +118,9 @@ def setup(bot: Bot, db: Database, admin_ids: list[int], raid: RaidDetector):
                 await message.reply("Usage: /faq add keyword1,keyword2 | Response text")
                 return
             keywords, response = content.split("|", 1)
+            if not keywords.strip() or not response.strip() or not any(k.strip() for k in keywords.split(",")):
+                await message.reply("Keywords and response must not be empty.")
+                return
             faq_id = await db.add_faq(
                 message.chat.id,
                 keywords.strip(),
@@ -129,8 +130,12 @@ def setup(bot: Bot, db: Database, admin_ids: list[int], raid: RaidDetector):
             await message.reply(f"✅ FAQ #{faq_id} added.")
 
         elif action == "del" and len(parts) > 2:
-            faq_id = int(parts[2])
-            await db.delete_faq(faq_id)
+            try:
+                faq_id = int(parts[2])
+            except ValueError:
+                await message.reply("Usage: /faq del <id>")
+                return
+            await db.delete_faq(faq_id, message.chat.id)
             await message.reply(f"🗑️ FAQ #{faq_id} deleted.")
 
         else:
@@ -147,7 +152,13 @@ def setup(bot: Bot, db: Database, admin_ids: list[int], raid: RaidDetector):
             return
 
         parts = message.text.split()
-        hours = int(parts[1]) if len(parts) > 1 else 24
+        try:
+            hours = int(parts[1]) if len(parts) > 1 else 24
+            if hours <= 0:
+                raise ValueError
+        except ValueError:
+            await message.reply("Usage: /sentiment [positive number of hours]")
+            return
 
         avg = await db.get_sentiment_avg(message.chat.id, hours)
         report = format_sentiment_report(avg, hours)
@@ -166,8 +177,8 @@ def setup(bot: Bot, db: Database, admin_ids: list[int], raid: RaidDetector):
             status = raid.get_status(message.chat.id)
             if status.is_locked:
                 await message.reply(
-                    f"🔒 Chat is in lockdown mode.\n"
-                    f"Use /raid unlock to lift."
+                    "🔒 Chat is in lockdown mode.\n"
+                    "Use /raid unlock to lift."
                 )
             else:
                 await message.reply(

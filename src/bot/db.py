@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import aiosqlite
-from datetime import datetime
 
 
 class Database:
@@ -43,6 +42,15 @@ class Database:
                 FOREIGN KEY (user_id) REFERENCES users(user_id)
             );
 
+            CREATE TABLE IF NOT EXISTS chat_user_state (
+                chat_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                warn_count INTEGER DEFAULT 0,
+                is_muted INTEGER DEFAULT 0,
+                is_banned INTEGER DEFAULT 0,
+                PRIMARY KEY (chat_id, user_id)
+            );
+
             CREATE TABLE IF NOT EXISTS faq_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_id INTEGER NOT NULL,
@@ -73,6 +81,11 @@ class Database:
     # --- User methods ---
 
     async def get_or_create_user(self, user_id: int, username: str | None = None) -> dict:
+        await self._db.execute(
+            "INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)",
+            (user_id, username),
+        )
+        await self._db.commit()
         async with self._db.execute(
             "SELECT * FROM users WHERE user_id = ?", (user_id,)
         ) as cursor:
@@ -80,12 +93,6 @@ class Database:
             if row:
                 return dict(zip([d[0] for d in cursor.description], row))
 
-        await self._db.execute(
-            "INSERT INTO users (user_id, username) VALUES (?, ?)",
-            (user_id, username),
-        )
-        await self._db.commit()
-        return {"user_id": user_id, "username": username, "captcha_passed": 0, "warn_count": 0}
 
     async def set_captcha_passed(self, user_id: int) -> None:
         await self._db.execute(
@@ -93,30 +100,37 @@ class Database:
         )
         await self._db.commit()
 
-    async def add_warn(self, user_id: int, admin_id: int, reason: str) -> int:
+    async def add_warn(self, user_id: int, admin_id: int, reason: str, chat_id: int) -> int:
+        await self.get_or_create_user(user_id)
         await self._db.execute(
             "INSERT INTO warns (user_id, admin_id, reason) VALUES (?, ?, ?)",
             (user_id, admin_id, reason),
         )
         await self._db.execute(
-            "UPDATE users SET warn_count = warn_count + 1 WHERE user_id = ?", (user_id,)
+            """INSERT INTO chat_user_state (chat_id, user_id, warn_count) VALUES (?, ?, 1)
+               ON CONFLICT(chat_id, user_id) DO UPDATE SET warn_count = warn_count + 1""",
+            (chat_id, user_id),
         )
         await self._db.commit()
         async with self._db.execute(
-            "SELECT warn_count FROM users WHERE user_id = ?", (user_id,)
+            "SELECT warn_count FROM chat_user_state WHERE chat_id = ? AND user_id = ?", (chat_id, user_id)
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else 1
 
-    async def set_muted(self, user_id: int, muted: bool) -> None:
+    async def set_muted(self, user_id: int, muted: bool, chat_id: int) -> None:
         await self._db.execute(
-            "UPDATE users SET is_muted = ? WHERE user_id = ?", (int(muted), user_id)
+            """INSERT INTO chat_user_state (chat_id, user_id, is_muted) VALUES (?, ?, ?)
+               ON CONFLICT(chat_id, user_id) DO UPDATE SET is_muted = excluded.is_muted""",
+            (chat_id, user_id, int(muted))
         )
         await self._db.commit()
 
-    async def set_banned(self, user_id: int, banned: bool) -> None:
+    async def set_banned(self, user_id: int, banned: bool, chat_id: int) -> None:
         await self._db.execute(
-            "UPDATE users SET is_banned = ? WHERE user_id = ?", (int(banned), user_id)
+            """INSERT INTO chat_user_state (chat_id, user_id, is_banned) VALUES (?, ?, ?)
+               ON CONFLICT(chat_id, user_id) DO UPDATE SET is_banned = excluded.is_banned""",
+            (chat_id, user_id, int(banned))
         )
         await self._db.commit()
 
@@ -137,8 +151,8 @@ class Database:
             rows = await cursor.fetchall()
             return [{"id": r[0], "keywords": r[1], "response": r[2]} for r in rows]
 
-    async def delete_faq(self, faq_id: int) -> None:
-        await self._db.execute("DELETE FROM faq_entries WHERE id = ?", (faq_id,))
+    async def delete_faq(self, faq_id: int, chat_id: int) -> None:
+        await self._db.execute("DELETE FROM faq_entries WHERE id = ? AND chat_id = ?", (faq_id, chat_id))
         await self._db.commit()
 
     # --- Chat settings ---

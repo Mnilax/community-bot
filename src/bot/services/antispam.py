@@ -13,7 +13,7 @@ SCAM_PATTERNS = [
     r"(?:https?://)?(?:www\.)?(?:airdrop|claim|free-?token|giveaway|reward)[a-z0-9\-]*\.(?:com|org|net|io|xyz)",
     r"(?:https?://)?[a-z0-9\-]+\.(?:com|org|net|io|xyz)/(?:airdrop|claim|free|giveaway|reward)",
     r"(?:https?://)?t\.me/[a-z0-9_]+bot\?start=",  # Suspicious bot referrals
-    r"(?:https?://)?(?:www\.)?(?:binance|coinbase|metamask)[a-z\-]*\.(?:com|org|net)(?!/)",  # Phishing clones
+    r"(?:https?://)?(?:www\.)?(?:binance|coinbase|metamask)[a-z\-]+\.(?:com|org|net)(?!/)",  # Phishing clones
 ]
 
 SCAM_KEYWORDS = [
@@ -43,11 +43,11 @@ class AntiSpamService:
     def __init__(self, rate_limit: int = 5, window_seconds: int = 10):
         self.rate_limit = rate_limit
         self.window_seconds = window_seconds
-        self._flood_trackers: dict[int, FloodTracker] = defaultdict(FloodTracker)
-        self._recent_hashes: dict[int, list[str]] = defaultdict(list)
+        self._flood_trackers: dict[tuple[int, int], FloodTracker] = defaultdict(FloodTracker)
+        self._recent_hashes: dict[tuple[int, int], list[str]] = defaultdict(list)
         self._compiled_patterns = [re.compile(p, re.IGNORECASE) for p in SCAM_PATTERNS]
 
-    def check_message(self, user_id: int, text: str) -> SpamResult:
+    def check_message(self, user_id: int, text: str, chat_id: int = 0) -> SpamResult:
         """Run all anti-spam checks on a message.
 
         Args:
@@ -70,7 +70,8 @@ class AntiSpamService:
 
         # 3. Flood check (sliding window)
         now = time.time()
-        tracker = self._flood_trackers[user_id]
+        key = (chat_id, user_id)
+        tracker = self._flood_trackers[key]
         tracker.timestamps = [t for t in tracker.timestamps if now - t < self.window_seconds]
         tracker.timestamps.append(now)
 
@@ -79,16 +80,16 @@ class AntiSpamService:
 
         # 4. Duplicate message check
         msg_hash = hashlib.md5(text.encode()).hexdigest()
-        recent = self._recent_hashes[user_id]
+        recent = self._recent_hashes[key]
         if msg_hash in recent[-5:]:  # Last 5 messages
             return SpamResult(is_spam=True, reason="duplicate")
         recent.append(msg_hash)
         if len(recent) > 20:
-            self._recent_hashes[user_id] = recent[-10:]
+            self._recent_hashes[key] = recent[-10:]
 
         return SpamResult(is_spam=False)
 
-    def reset_user(self, user_id: int) -> None:
+    def reset_user(self, user_id: int, chat_id: int = 0) -> None:
         """Reset tracking for a user."""
-        self._flood_trackers.pop(user_id, None)
-        self._recent_hashes.pop(user_id, None)
+        self._flood_trackers.pop((chat_id, user_id), None)
+        self._recent_hashes.pop((chat_id, user_id), None)

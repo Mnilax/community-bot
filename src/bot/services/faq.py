@@ -1,6 +1,7 @@
 """FAQ auto-responder — keyword matching against stored FAQ entries."""
 
 from __future__ import annotations
+from html import escape
 
 
 def find_matching_faq(text: str, faq_entries: list[dict]) -> dict | None:
@@ -19,7 +20,7 @@ def find_matching_faq(text: str, faq_entries: list[dict]) -> dict | None:
     best_score = 0
 
     for entry in faq_entries:
-        keywords = [k.strip().lower() for k in entry["keywords"].split(",")]
+        keywords = [k.strip().lower() for k in entry["keywords"].split(",") if k.strip()]
         score = sum(1 for kw in keywords if kw in text_lower)
 
         if score > best_score:
@@ -36,6 +37,6 @@ def format_faq_list(entries: list[dict]) -> str:
 
     lines = ["📚 <b>FAQ Entries:</b>\n"]
     for entry in entries:
-        lines.append(f"  #{entry['id']} — <b>{entry['keywords']}</b>\n  → {entry['response']}\n")
+        lines.append(f"  #{entry['id']} — <b>{escape(entry['keywords'])}</b>\n  → {escape(entry['response'])}\n")
 
     return "\n".join(lines)

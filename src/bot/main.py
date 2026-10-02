@@ -65,8 +65,8 @@ async def main():
 
     # Global error handler
     @dp.error()
-    async def global_error_handler(event, exception):
-        logger.error(f"Unhandled error: {exception}", exc_info=True)
+    async def global_error_handler(event):
+        logger.error("Unhandled error: %s", event.exception, exc_info=event.exception)
 
     # Start polling
     logger.info("Bot starting...")

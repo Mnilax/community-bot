@@ -8,6 +8,7 @@ def format_welcome(
     chat_title: str,
     welcome_text: str,
     rules_text: str,
+    verification_required: bool = True,
 ) -> str:
     """Format a welcome message for a new member.
 
@@ -24,7 +25,7 @@ def format_welcome(
         f"👋 <b>Welcome, {_escape_html(username)}!</b>\n\n"
         f"{welcome_text}\n\n"
         f"📋 <b>Rules:</b>\n{rules_text}\n\n"
-        f"Please complete the verification to start chatting."
+        + ("Please complete the verification to start chatting." if verification_required else "")
     )
 
 

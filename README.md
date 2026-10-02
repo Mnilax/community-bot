@@ -5,8 +5,7 @@
 
 Telegram bot for community moderation and onboarding built with aiogram 3.x. Handles anti-spam, captcha verification, welcome flows, FAQ auto-response, raid detection, and sentiment tracking.
 
-<!-- TODO: replace with real demo GIF/screenshots showing welcome, captcha, and antispam flows -->
-![Demo](assets/demo.gif)
+Service and handler regression tests run without connecting to Telegram.
 
 ## Features
 
@@ -16,7 +15,7 @@ Telegram bot for community moderation and onboarding built with aiogram 3.x. Han
 | **Captcha gate** | New members can't chat until passing button/math captcha |
 | **Welcome flow** | Customizable welcome message + rules, auto-deletes after timeout |
 | **FAQ responder** | Keyword-based auto-responses, admin-configurable via commands |
-| **Raid detection** | Join spike monitoring with auto-lockdown + admin alert |
+| **Raid detection** | Join spike monitoring with temporary rejection of new members |
 | **Sentiment tracking** | Per-chat mood scoring for community manager reports |
 | **Admin commands** | `/warn`, `/ban`, `/mute`, `/unmute`, `/faq`, `/sentiment`, `/raid` |
 
@@ -24,7 +23,7 @@ Telegram bot for community moderation and onboarding built with aiogram 3.x. Han
 
 1. Create a bot with [@BotFather](https://t.me/BotFather)
 2. Copy `.env.example` to `.env` and fill in your values
-3. Install and run:
+3. Add the bot as a group administrator with permission to delete messages and restrict members. Install and run:
 
 ```bash
 pip install -e .
@@ -84,7 +83,9 @@ See `.env.example` for all options. Key settings:
 - `ADMIN_IDS` — comma-separated admin user IDs
 - `FLOOD_RATE_LIMIT` / `FLOOD_WINDOW_SECONDS` — anti-spam tuning
 - `RAID_JOIN_THRESHOLD` — joins/minute to trigger lockdown
-- `CAPTCHA_TYPE` — `button` or `math`
+- `CAPTCHA_TYPE` — `button` or a multiple-choice `math` challenge
+
+Warnings, mute/ban records, and flood/duplicate tracking are scoped to each chat. Existing databases retain their historical user records; warning counters from the old global schema are not assigned to a chat.
 
 ## License
 

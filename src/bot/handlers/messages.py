@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from aiogram import Router, Bot
 from aiogram.types import Message
+from aiogram.types import ChatPermissions
+from html import escape
 
 from bot.db import Database
 from bot.services.antispam import AntiSpamService
@@ -19,7 +21,7 @@ def setup(bot: Bot, db: Database, antispam: AntiSpamService):
     @router.message()
     async def on_message(message: Message):
         """Process every group message."""
-        if not message.text or message.chat.type == "private":
+        if not message.text or message.chat.type not in ("group", "supergroup") or not message.from_user or message.sender_chat:
             return
 
         user_id = message.from_user.id
@@ -27,8 +29,9 @@ def setup(bot: Bot, db: Database, antispam: AntiSpamService):
         text = message.text
 
         # 1. Anti-spam check
-        result = antispam.check_message(user_id, text)
-        if result.is_spam:
+        settings = await db.get_settings(chat_id)
+        result = antispam.check_message(user_id, text, chat_id) if settings.get("antispam_enabled", True) else None
+        if result and result.is_spam:
             try:
                 await message.delete()
             except Exception:
@@ -36,10 +39,12 @@ def setup(bot: Bot, db: Database, antispam: AntiSpamService):
 
             if result.reason in ("scam_link", "scam_keyword"):
                 # Auto-mute for scam
-                await db.set_muted(user_id, True)
+                await bot.restrict_chat_member(chat_id, user_id, permissions=ChatPermissions(can_send_messages=False))
+                await db.get_or_create_user(user_id, message.from_user.username)
+                await db.set_muted(user_id, True, chat_id)
                 await bot.send_message(
                     chat_id,
-                    f"🚫 User {message.from_user.full_name} muted for spam ({result.reason}).",
+                    f"🚫 User {escape(message.from_user.full_name)} muted for spam ({result.reason}).",
                 )
             return
 
